@@ -14,7 +14,7 @@ usage() {
 Usage:
   $SCRIPT_NAME PROFILE_DIR [OLD_PROFILE_DIR_NAME] [--dry-run]
 
-Rewrites absolute snap/flatpak Thunderbird paths inside the .js and .json files
+Rewrites absolute snap/flatpak Thunderbird paths inside the prefs.js, .js and .json files
 of a migrated Thunderbird profile so they point at the deb profile location.
 
 Old roots rewritten:
@@ -32,7 +32,7 @@ Arguments:
                           PROFILE_DIR). When omitted, only root-level path swaps run.
   --dry-run               Print the planned replacements without modifying files.
 
-Only *.js and *.json files are touched. .jsonlz4/.mozlz4 and binary files are skipped.
+Only prefs.js, *.js and *.json files are touched. .jsonlz4/.mozlz4 and binary files are skipped.
 
 Examples:
   $SCRIPT_NAME ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
