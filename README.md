@@ -74,6 +74,42 @@ Thunderbird verification paths:
 /usr/lib/thunderbird/thunderbird
 ```
 
+## Standalone path-rewrite helpers
+
+The main scripts rewrite absolute sandbox paths inside migrated profile `.js`/`.json` files automatically. If you migrated a profile some other way, two standalone helpers do the same rewriting with plain `sed`:
+
+- `rewrite-thunderbird-js-json.sh` maps paths to `~/.thunderbird`.
+- `rewrite-firefox-js-json.sh` maps paths to `~/.mozilla/firefox`.
+
+Each helper rewrites absolute snap and flatpak paths inside the `*.js` and `*.json` files of a migrated profile, in place:
+
+```text
+$HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
+$HOME/.var/app/org.mozilla.Thunderbird/.thunderbird -> $HOME/.thunderbird
+$HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
+$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
+```
+
+Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched, and the `cache2`/`startupCache` directories are skipped.
+
+Usage:
+
+```bash
+./rewrite-thunderbird-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+./rewrite-firefox-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+```
+
+`PROFILE_DIR` is the migrated profile directory to scan and rewrite. `OLD_PROFILE_DIR_NAME` is the source profile directory name (for example `abcdef.default`); when given, full paths that include that directory name are remapped to the new profile directory name (the basename of `PROFILE_DIR`). When omitted, only root-level path swaps run.
+
+Examples:
+
+```bash
+./rewrite-thunderbird-js-json.sh ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
+./rewrite-firefox-js-json.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
+```
+
+Use `--dry-run` to preview the planned `sed` replacements without writing any file.
+
 ## Safety model
 
 The script is intentionally conservative:
@@ -428,13 +464,13 @@ or disable language packs:
 Run syntax check:
 
 ```bash
-bash -n firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh
+bash -n firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-js-json.sh rewrite-firefox-js-json.sh
 ```
 
 Run ShellCheck if available:
 
 ```bash
-shellcheck firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh
+shellcheck firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-js-json.sh rewrite-firefox-js-json.sh
 ```
 
 ## Security notes
