@@ -32,6 +32,7 @@ MIGRATED_PROFILE_DIR_NAME="${MIGRATED_PROFILE_DIR_NAME:-}"
 BACKUP_DIR=""
 SELECTED_PROFILE_SOURCE=""
 SELECTED_PROFILE_PATH=""
+OLD_HOME="${OLD_HOME:-}"
 
 usage() {
   cat <<EOF_USAGE
@@ -59,6 +60,9 @@ Options:
   --l10n-code CODE              Override detected language pack code, e.g. sv-se, en-gb, de, fr
   --profile-name NAME           Display name for the migrated Firefox profile
   --profile-dir-name NAME       Directory name under ~/.mozilla/firefox for the migrated profile
+  --old-home PATH               Home directory that the copied profile came from, e.g. /home/olduser.
+                                Needed when the whole home directory was copied from another machine
+                                and absolute paths inside the profile reference that old home.
   --log-file PATH               Write log to PATH instead of $LOG_FILE_DEFAULT
   --help                        Show this help
 
@@ -70,6 +74,7 @@ Examples:
   $SCRIPT_NAME --all
   $SCRIPT_NAME --install-deb --no-l10n
   $SCRIPT_NAME --install-deb --l10n-code sv-se
+  $SCRIPT_NAME --install-deb --migrate-profile --old-home /home/olduser
 
 Safe defaults:
   - Always creates a backup before profile/system changes
@@ -186,6 +191,11 @@ parse_args() {
       --profile-dir-name)
         [[ "${2:-}" ]] || fail "--profile-dir-name requires a value"
         MIGRATED_PROFILE_DIR_NAME="$2"
+        shift 2
+        ;;
+      --old-home)
+        [[ "${2:-}" ]] || fail "--old-home requires a value"
+        OLD_HOME="$2"
         shift 2
         ;;
       --log-file)
@@ -738,22 +748,30 @@ rewrite_profile_paths() {
   local profile_dir="$1"
   local old_profile_dir_name="$2"
   local new_profile_dir_name="$3"
+  local old_home="${4:-$HOME}"
 
   log "=== Rewriting absolute paths in migrated profile ==="
   log "Profile directory: $profile_dir"
 
-  local old_root="$HOME/snap/firefox/common/.mozilla/firefox"
+  if [[ -n "${OLD_HOME:-}" && "$OLD_HOME" != "$HOME" ]]; then
+    warn "OLD_HOME is set to $OLD_HOME. Absolute paths inside the profile referencing the old home will be rewritten."
+  fi
+
   local new_root="$HOME/.mozilla/firefox"
 
   local rewrite_output
   rewrite_output="$(
-    python3 - "$profile_dir" "$old_root" "$new_root" "$old_profile_dir_name" "$new_profile_dir_name" <<'PY_PATHS'
+    python3 - "$profile_dir" "$old_home" "$new_root" "$old_profile_dir_name" "$new_profile_dir_name" <<'PY_PATHS'
 import os
 import sys
 
-profile_dir, old_root, new_root, old_dir_name, new_dir_name = sys.argv[1:6]
+profile_dir, old_home, new_root, old_dir_name, new_dir_name = sys.argv[1:6]
 
-full_old = os.path.join(old_root, old_dir_name)
+old_roots = [
+    os.path.join(old_home, "snap/firefox/common/.mozilla/firefox"),
+    os.path.join(old_home, ".var/app/org.mozilla.firefox/.mozilla/firefox"),
+]
+full_old = [os.path.join(root, old_dir_name) for root in old_roots]
 full_new = os.path.join(new_root, new_dir_name)
 
 count = 0
@@ -771,15 +789,14 @@ for dirpath, dirnames, filenames in os.walk(profile_dir):
                 content = f.read()
         except (OSError, UnicodeDecodeError):
             continue
-        if old_root not in content:
+        if not any(root in content for root in old_roots):
             continue
-        new_content = content.replace(full_old, full_new)
-        if new_content == content:
-            new_content = content.replace(old_root, new_root)
-        if new_content == content:
-            continue
+        for full in full_old:
+            content = content.replace(full, full_new)
+        for root in old_roots:
+            content = content.replace(root, new_root)
         with open(path, "w", encoding="utf-8", errors="strict") as f:
-            f.write(new_content)
+            f.write(content)
         count += 1
         print(path)
 
@@ -828,9 +845,7 @@ migrate_profile() {
   if [[ "$DRY_RUN" != "1" ]]; then
     remove_profile_locks "$deb_profile"
     check_profile_contents "$deb_profile"
-    if [[ "$SELECTED_PROFILE_SOURCE" == "snap" ]]; then
-      rewrite_profile_paths "$deb_profile" "$source_dir_name" "$MIGRATED_PROFILE_DIR_NAME"
-    fi
+    rewrite_profile_paths "$deb_profile" "$source_dir_name" "$MIGRATED_PROFILE_DIR_NAME" "$OLD_HOME"
     update_profiles_ini "$deb_root/profiles.ini" "$MIGRATED_PROFILE_NAME" "$MIGRATED_PROFILE_DIR_NAME"
   else
     log "DRY-RUN: update profiles.ini and set migrated profile as default"

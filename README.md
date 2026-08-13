@@ -84,28 +84,31 @@ The main scripts rewrite absolute sandbox paths inside migrated profile `.js`/`.
 Each helper rewrites absolute snap and flatpak paths inside the `prefs.js`, `*.js`, and `*.json` files of a migrated profile, in place:
 
 ```text
-$HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
-$HOME/.var/app/org.mozilla.Thunderbird/.thunderbird -> $HOME/.thunderbird
-$HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
-$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
+$OLD_HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
+$OLD_HOME/.var/app/org.mozilla.Thunderbird/.thunderbird -> $HOME/.thunderbird
+$OLD_HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
+$OLD_HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
 ```
 
-Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched, and the `cache2`/`startupCache` directories are skipped.
+`OLD_HOME` defaults to `$HOME`. Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched, and the `cache2`/`startupCache` directories are skipped.
 
 Usage:
 
 ```bash
-./rewrite-thunderbird-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
-./rewrite-firefox-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+./rewrite-thunderbird-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME] [--old-home PATH]
+./rewrite-firefox-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME] [--old-home PATH]
 ```
 
 `PROFILE_DIR` is the migrated profile directory to scan and rewrite. `OLD_PROFILE_DIR_NAME` is the source profile directory name (for example `abcdef.default`); when given, full paths that include that directory name are remapped to the new profile directory name (the basename of `PROFILE_DIR`). When omitted, only root-level path swaps run.
+
+`--old-home PATH` tells the helper which home directory the copied profile came from. Use it when the whole home directory was copied from another machine (for example from a different username) and the absolute paths inside the profile still reference that old home, e.g. `/home/olduser/snap/...` instead of the current `$HOME/snap/...`.
 
 Examples:
 
 ```bash
 ./rewrite-thunderbird-js-json.sh ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
 ./rewrite-firefox-js-json.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
+./rewrite-firefox-js-json.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default --old-home /home/olduser
 ```
 
 Use `--dry-run` to preview the planned `sed` replacements without writing any file.
@@ -299,6 +302,19 @@ Migrated from sandboxed Firefox
 ```
 
 The original Flatpak/Snap profile is not moved. It is copied.
+
+### Copied home directory from another machine
+
+Both main scripts find and migrate profiles under the current user's home even if the whole home directory (including `~/snap/...` or `~/.var/app/...`) was copied from another machine, and Snap/Flatpak do not need to be installed on the new system.
+
+Absolute paths inside the profile (for example `browser.download.lastDir` or Thunderbird's mail directories in `prefs.js`) are rewritten for both Snap and Flatpak sources. If the copied home came from a different username, point the rewrite at the old home with `--old-home` (or the `OLD_HOME` environment variable):
+
+```bash
+./firefox-migrate-to-mozilla-deb.sh --install-deb --migrate-profile --old-home /home/olduser
+./thunderbird-migrate-to-mozilla-deb.sh --install-deb --migrate-profile --old-home /home/olduser
+```
+
+Without `--old-home`, the script assumes the profile's absolute paths live under the current `$HOME`.
 
 ## Backups and rollback
 
