@@ -26,8 +26,8 @@ DO_MIGRATE_PROFILE="unset"
 DO_REMOVE_FLATPAK="unset"
 DO_REMOVE_SNAP="unset"
 DO_DELETE_OLD_SANDBOX_DATA="unset"
-INSTALL_FIREFOX_L10N="${INSTALL_FIREFOX_L10N:-1}"
-FIREFOX_L10N_CODE="${FIREFOX_L10N_CODE:-}"
+INSTALL_THUNDERBIRD_L10N="${INSTALL_THUNDERBIRD_L10N:-1}"
+THUNDERBIRD_L10N_CODE="${THUNDERBIRD_L10N_CODE:-}"
 
 MIGRATED_PROFILE_NAME="${MIGRATED_PROFILE_NAME:-$DEFAULT_PROFILE_NAME}"
 MIGRATED_PROFILE_DIR_NAME="${MIGRATED_PROFILE_DIR_NAME:-}"
@@ -172,12 +172,12 @@ parse_args() {
         shift
         ;;
       --no-l10n)
-        INSTALL_FIREFOX_L10N=0
+        INSTALL_THUNDERBIRD_L10N=0
         shift
         ;;
       --l10n-code)
         [[ "${2:-}" ]] || fail "--l10n-code requires a value"
-        FIREFOX_L10N_CODE="$2"
+        THUNDERBIRD_L10N_CODE="$2"
         shift 2
         ;;
       --profile-name)
@@ -267,8 +267,8 @@ interactive_plan() {
 print_plan() {
   log "=== Planned actions ==="
   log "Install Mozilla deb Thunderbird: $DO_INSTALL_DEB"
-  log "Install Thunderbird language pack from locale: $INSTALL_FIREFOX_L10N"
-  log "Thunderbird language pack override: ${FIREFOX_L10N_CODE:-auto}"
+  log "Install Thunderbird language pack from locale: $INSTALL_THUNDERBIRD_L10N"
+  log "Thunderbird language pack override: ${THUNDERBIRD_L10N_CODE:-auto}"
   log "Current locale: ${LC_ALL:-${LC_MESSAGES:-${LANG:-unknown}}}"
   log "Migrate sandboxed Thunderbird profile: $DO_MIGRATE_PROFILE"
   log "Migrated profile display name: $MIGRATED_PROFILE_NAME"
@@ -448,8 +448,8 @@ EOF_PREF
 }
 
 detect_thunderbird_l10n_code() {
-  if [[ -n "$FIREFOX_L10N_CODE" ]]; then
-    echo "$FIREFOX_L10N_CODE"
+  if [[ -n "$THUNDERBIRD_L10N_CODE" ]]; then
+    echo "$THUNDERBIRD_L10N_CODE"
     return 0
   fi
 
@@ -474,7 +474,7 @@ detect_thunderbird_l10n_code() {
 }
 
 install_thunderbird_l10n() {
-  [[ "$INSTALL_FIREFOX_L10N" == "1" ]] || return
+  [[ "$INSTALL_THUNDERBIRD_L10N" == "1" ]] || return
 
   local l10n_code
   if ! l10n_code="$(detect_thunderbird_l10n_code)"; then
