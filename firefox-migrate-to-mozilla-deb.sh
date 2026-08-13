@@ -734,6 +734,66 @@ with open(profiles_ini, "w", encoding="utf-8") as f:
 PY_PROFILES
 }
 
+rewrite_profile_paths() {
+  local profile_dir="$1"
+  local old_profile_dir_name="$2"
+  local new_profile_dir_name="$3"
+
+  log "=== Rewriting absolute paths in migrated profile ==="
+  log "Profile directory: $profile_dir"
+
+  local old_root="$HOME/snap/firefox/common/.mozilla/firefox"
+  local new_root="$HOME/.mozilla/firefox"
+
+  local rewrite_output
+  rewrite_output="$(
+    python3 - "$profile_dir" "$old_root" "$new_root" "$old_profile_dir_name" "$new_profile_dir_name" <<'PY_PATHS'
+import os
+import sys
+
+profile_dir, old_root, new_root, old_dir_name, new_dir_name = sys.argv[1:6]
+
+full_old = os.path.join(old_root, old_dir_name)
+full_new = os.path.join(new_root, new_dir_name)
+
+count = 0
+
+for dirpath, dirnames, filenames in os.walk(profile_dir):
+    dirnames[:] = [d for d in dirnames if d not in ("cache2", "startupCache")]
+    for name in filenames:
+        if not (name.endswith(".js") or name.endswith(".json")):
+            continue
+        if name.endswith((".jsonlz4", ".mozlz4")):
+            continue
+        path = os.path.join(dirpath, name)
+        try:
+            with open(path, "r", encoding="utf-8", errors="strict") as f:
+                content = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if old_root not in content:
+            continue
+        new_content = content.replace(full_old, full_new)
+        if new_content == content:
+            new_content = content.replace(old_root, new_root)
+        if new_content == content:
+            continue
+        with open(path, "w", encoding="utf-8", errors="strict") as f:
+            f.write(new_content)
+        count += 1
+        print(path)
+
+print(f"Total rewritten files: {count}")
+PY_PATHS
+  )"
+
+  if [[ -n "$rewrite_output" ]]; then
+    while IFS= read -r line; do
+      log "$line"
+    done <<< "$rewrite_output"
+  fi
+}
+
 migrate_profile() {
   [[ "$DO_MIGRATE_PROFILE" == "1" ]] || return
 
@@ -747,6 +807,9 @@ migrate_profile() {
 
   log "Selected source: ${SELECTED_PROFILE_SOURCE:-unknown}"
   log "Selected profile: $source_profile"
+
+  local source_dir_name
+  source_dir_name="$(basename "$source_profile")"
 
   local deb_root="$HOME/.mozilla/firefox"
   local deb_profile="$deb_root/$MIGRATED_PROFILE_DIR_NAME"
@@ -765,6 +828,9 @@ migrate_profile() {
   if [[ "$DRY_RUN" != "1" ]]; then
     remove_profile_locks "$deb_profile"
     check_profile_contents "$deb_profile"
+    if [[ "$SELECTED_PROFILE_SOURCE" == "snap" ]]; then
+      rewrite_profile_paths "$deb_profile" "$source_dir_name" "$MIGRATED_PROFILE_DIR_NAME"
+    fi
     update_profiles_ini "$deb_root/profiles.ini" "$MIGRATED_PROFILE_NAME" "$MIGRATED_PROFILE_DIR_NAME"
   else
     log "DRY-RUN: update profiles.ini and set migrated profile as default"

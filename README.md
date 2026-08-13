@@ -2,7 +2,7 @@
 
 Interactive migration scripts for Ubuntu/Debian-like systems that install Mozilla Firefox or Mozilla Thunderbird from Mozilla's official APT repository and optionally migrate an existing sandboxed Firefox/Thunderbird profile from Flatpak or Snap into the normal deb profile location.
 
-- `firefox-migrate-to-mozilla-deb.sh` handles Mozilla Firefox.
+- `firefox-migrate-to-mozilla-deb.sh` handles Mozilla Firefox, and additionally rewrites absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so download directories keep working.
 - `thunderbird-migrate-to-mozilla-deb.sh` handles Mozilla Thunderbird, and additionally rewrites absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so mail and download directories keep working.
 
 The scripts are designed for users who want to move away from Flatpak/Snap Firefox or Thunderbird and use a normal deb-installed application, for example when sandboxing prevents host integrations such as native messaging, smart cards, PKCS#11 modules, hardware devices, or other local system integrations.
@@ -23,6 +23,7 @@ The script can:
 - Give the migrated profile a clear name, by default: `Migrated from sandboxed Firefox`.
 - Preserve existing profiles.
 - Update `profiles.ini`, including Firefox `[Install...]` sections, so the migrated profile is actually used.
+- Rewrite absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so download directories keep working.
 - Create a full backup before making changes.
 - Generate a `backup-manifest.txt` and `rollback.sh` in the backup directory.
 - Detect and move broken `/usr/local/bin/firefox` wrappers that still point to Flatpak or Snap.
