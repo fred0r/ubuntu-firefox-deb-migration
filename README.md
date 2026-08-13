@@ -1,8 +1,11 @@
-# Firefox migrate to Mozilla deb
+# Firefox and Thunderbird migrate to Mozilla deb
 
-Interactive migration script for Ubuntu/Debian-like systems that installs Mozilla Firefox from Mozilla's official APT repository and optionally migrates an existing sandboxed Firefox profile from Flatpak or Snap into the normal deb Firefox profile location.
+Interactive migration scripts for Ubuntu/Debian-like systems that install Mozilla Firefox or Mozilla Thunderbird from Mozilla's official APT repository and optionally migrate an existing sandboxed Firefox/Thunderbird profile from Flatpak or Snap into the normal deb profile location.
 
-The script is designed for users who want to move away from Flatpak/Snap Firefox and use a normal deb-installed Firefox, for example when sandboxing prevents host integrations such as native messaging, smart cards, PKCS#11 modules, hardware devices, or other local system integrations.
+- `firefox-migrate-to-mozilla-deb.sh` handles Mozilla Firefox.
+- `thunderbird-migrate-to-mozilla-deb.sh` handles Mozilla Thunderbird, and additionally rewrites absolute snap paths inside migrated profile `.js`/`.json` files so mail and download directories keep working.
+
+The scripts are designed for users who want to move away from Flatpak/Snap Firefox or Thunderbird and use a normal deb-installed application, for example when sandboxing prevents host integrations such as native messaging, smart cards, PKCS#11 modules, hardware devices, or other local system integrations.
 
 ## What it does
 
@@ -40,7 +43,36 @@ The script does not:
 
 On Ubuntu, `apt install firefox` may install a transitional package that launches the Snap version of Firefox instead of a normal deb package. Flatpak and Snap are useful, but they add sandboxing. That sandboxing can be a problem when Firefox needs direct access to host-installed components.
 
-Mozilla provides an official APT repository for Debian-based and Ubuntu-based distributions. This script automates that setup and adds safe profile migration and cleanup helpers.
+Mozilla provides an official APT repository for Debian-based and Ubuntu-based distributions. These scripts automate that setup and add safe profile migration and cleanup helpers.
+
+## Thunderbird specifics
+
+`thunderbird-migrate-to-mozilla-deb.sh` uses the same approach as the Firefox script, with these differences:
+
+- It installs the `thunderbird` deb package.
+- It adds the Mozilla repository entry for the `thunderbird-deb` suite (Firefox uses the `mozilla` suite), using the one-line APT format in `/etc/apt/sources.list.d/mozilla-thunderbird.list`:
+
+  ```text
+  deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt thunderbird-deb main
+  ```
+
+- It installs Thunderbird language packs like `thunderbird-l10n-sv-se` or `thunderbird-l10n-de`.
+- It finds Thunderbird profiles from:
+  - Flatpak Thunderbird: `~/.var/app/org.mozilla.Thunderbird/.thunderbird`
+  - Snap Thunderbird: `~/snap/thunderbird/common/.thunderbird`
+- It copies the selected profile into `~/.thunderbird` as a new profile named `Migrated from sandboxed Thunderbird`.
+- It rewrites absolute paths inside the migrated profile's `.js` and `.json` files, mapping `$HOME/snap/thunderbird/common/.thunderbird/...` (including the old profile directory name) to the new `$HOME/.thunderbird/...` location. Thunderbird stores absolute paths in `prefs.js` for mail/Local Folders directories and download locations, so this keeps those working after migration. Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched.
+- It detects and moves broken `/usr/local/bin/thunderbird` wrappers that still point to Flatpak or Snap.
+- It optionally uninstalls Flatpak Thunderbird and/or Snap Thunderbird.
+
+All other behavior (backup, rollback, `--dry-run`, `--yes`, interactive prompts, APT pinning, key verification) is identical to the Firefox script. The command-line flags are the same; replace `firefox-migrate-to-mozilla-deb.sh` with `thunderbird-migrate-to-mozilla-deb.sh` in the usage examples below.
+
+Thunderbird verification paths:
+
+```text
+/usr/bin/thunderbird
+/usr/lib/thunderbird/thunderbird
+```
 
 ## Safety model
 
@@ -396,13 +428,13 @@ or disable language packs:
 Run syntax check:
 
 ```bash
-bash -n firefox-migrate-to-mozilla-deb.sh
+bash -n firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh
 ```
 
 Run ShellCheck if available:
 
 ```bash
-shellcheck firefox-migrate-to-mozilla-deb.sh
+shellcheck firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh
 ```
 
 ## Security notes
