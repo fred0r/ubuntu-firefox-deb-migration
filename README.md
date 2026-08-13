@@ -11,24 +11,23 @@ The scripts are designed for users who want to move away from Flatpak/Snap Firef
 
 The script can:
 
-- Install Mozilla Firefox from `packages.mozilla.org` using APT.
+- Install Mozilla Firefox or Mozilla Thunderbird from `packages.mozilla.org` using APT.
 - Verify Mozilla's APT signing key fingerprint.
-- Configure APT pinning so Mozilla's Firefox package is preferred over Ubuntu's transitional Snap package.
-- Detect your system locale and install a matching Firefox language pack when available.
-- Find Firefox profiles from:
-  - Flatpak Firefox: `~/.var/app/org.mozilla.firefox/.mozilla/firefox`
-  - Snap Firefox: `~/snap/firefox/common/.mozilla/firefox`
+- Configure APT pinning so Mozilla's package is preferred over Ubuntu's transitional Snap package.
+- Detect your system locale and install a matching Firefox or Thunderbird language pack when available.
+- Find profiles from:
+  - Flatpak: `~/.var/app/org.mozilla.firefox/.mozilla/firefox` and `~/.var/app/org.mozilla.Thunderbird/.thunderbird`
+  - Snap: `~/snap/firefox/common/.mozilla/firefox` and `~/snap/thunderbird/common/.thunderbird`
 - Interactively ask which profile to migrate.
-- Copy the selected profile into `~/.mozilla/firefox` as a new profile.
-- Give the migrated profile a clear name, by default: `Migrated from sandboxed Firefox`.
+- Copy the selected profile into `~/.mozilla/firefox` or `~/.thunderbird` as a new profile.
+- Give the migrated profile a clear name, by default `Migrated from sandboxed Firefox` or `Migrated from sandboxed Thunderbird`.
 - Preserve existing profiles.
-- Update `profiles.ini`, including Firefox `[Install...]` sections, so the migrated profile is actually used.
-- Rewrite absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so download directories keep working.
-- Create a full backup before making changes.
-- Generate a `backup-manifest.txt` and `rollback.sh` in the backup directory.
-- Detect and move broken `/usr/local/bin/firefox` wrappers that still point to Flatpak or Snap.
-- Optionally uninstall Flatpak Firefox and/or Snap Firefox.
-- Optionally delete old Flatpak/Snap Firefox user data after backup.
+- Update `profiles.ini`, including `[Install...]` sections, so the migrated profile is actually used.
+- Rewrite absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so mail/download directories keep working.
+- Create a full backup before making changes, and generate a `backup-manifest.txt` and `rollback.sh` in the backup directory.
+- Detect and move broken `/usr/local/bin/firefox` and `/usr/local/bin/thunderbird` wrappers that still point to Flatpak or Snap.
+- Optionally uninstall Flatpak/Snap Firefox and/or Thunderbird.
+- Optionally delete old Flatpak/Snap user data after backup.
 
 ## What it does not do
 
