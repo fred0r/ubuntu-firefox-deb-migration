@@ -10,7 +10,7 @@ usage() {
 Usage:
   $SCRIPT_NAME PROFILE_DIR [OLD_PROFILE_DIR_NAME] [--dry-run]
 
-Rewrites absolute snap/flatpak Firefox paths inside the prefs.js, .js and .json files
+Rewrites absolute snap/flatpak Firefox paths inside every text config file
 of a migrated Firefox profile so they point at the deb profile location.
 
 Old roots rewritten:
@@ -28,7 +28,8 @@ Arguments:
                           PROFILE_DIR). When omitted, only root-level path swaps run.
   --dry-run               Print the planned replacements without modifying files.
 
-Only prefs.js, *.js and *.json files are touched. .jsonlz4/.mozlz4 and binary files are skipped.
+All text config files are touched (prefs.js, extensions.json, mimeTypes.rdf, ...).
+Binary files such as .sqlite, .db, .jsonlz4 and .mozlz4 are detected by content and skipped.
 
 Examples:
   $SCRIPT_NAME ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
@@ -63,14 +64,12 @@ rewrite_profile_paths() {
   local -a files=()
   local file
   while IFS= read -r -d '' file; do
-    if grep -Fq "${old_patterns[@]}" "$file" 2>/dev/null; then
-      files+=("$file")
-    fi
+    files+=("$file")
   done < <(
     find "$profile_dir" \
       -type d \( -name cache2 -o -name startupCache \) -prune -o \
-      -type f \( -name '*.js' -o -name '*.json' \) \
-      ! -name '*.jsonlz4' ! -name '*.mozlz4' -print0 2>/dev/null
+      -type f -print0 2>/dev/null |
+      xargs -0 grep -FIlZ "${old_patterns[@]}" 2>/dev/null
   )
 
   if [[ "${#files[@]}" -eq 0 ]]; then

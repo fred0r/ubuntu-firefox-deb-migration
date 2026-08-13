@@ -743,6 +743,7 @@ rewrite_profile_paths() {
   log "Profile directory: $profile_dir"
 
   local new_root="$HOME/.mozilla/firefox"
+  log "Rewriting paths to: $new_root"
 
   local rewrite_output
   rewrite_output="$(
@@ -764,15 +765,17 @@ count = 0
 for dirpath, dirnames, filenames in os.walk(profile_dir):
     dirnames[:] = [d for d in dirnames if d not in ("cache2", "startupCache")]
     for name in filenames:
-        if not (name.endswith(".js") or name.endswith(".json")):
-            continue
-        if name.endswith((".jsonlz4", ".mozlz4")):
-            continue
         path = os.path.join(dirpath, name)
         try:
-            with open(path, "r", encoding="utf-8", errors="strict") as f:
-                content = f.read()
-        except (OSError, UnicodeDecodeError):
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            continue
+        if b"\x00" in data:
+            continue
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError:
             continue
         if not any(root in content for root in old_roots):
             continue
@@ -780,7 +783,7 @@ for dirpath, dirnames, filenames in os.walk(profile_dir):
             content = content.replace(full, full_new)
         for root in old_roots:
             content = content.replace(root, new_root)
-        with open(path, "w", encoding="utf-8", errors="strict") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         count += 1
         print(path)

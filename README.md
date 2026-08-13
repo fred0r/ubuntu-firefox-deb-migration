@@ -2,8 +2,8 @@
 
 Interactive migration scripts for Ubuntu/Debian-like systems that install Mozilla Firefox or Mozilla Thunderbird from Mozilla's official APT repository and optionally migrate an existing sandboxed Firefox/Thunderbird profile from Flatpak or Snap into the normal deb profile location.
 
-- `firefox-migrate-to-mozilla-deb.sh` handles Mozilla Firefox, and additionally rewrites absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so download directories keep working.
-- `thunderbird-migrate-to-mozilla-deb.sh` handles Mozilla Thunderbird, and additionally rewrites absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so mail and download directories keep working.
+- `firefox-migrate-to-mozilla-deb.sh` handles Mozilla Firefox, and additionally rewrites absolute snap paths inside migrated profile text config files so download directories keep working.
+- `thunderbird-migrate-to-mozilla-deb.sh` handles Mozilla Thunderbird, and additionally rewrites absolute snap paths inside migrated profile text config files so mail and download directories keep working.
 
 The scripts are designed for users who want to move away from Flatpak/Snap Firefox or Thunderbird and use a normal deb-installed application, for example when sandboxing prevents host integrations such as native messaging, smart cards, PKCS#11 modules, hardware devices, or other local system integrations.
 
@@ -23,7 +23,7 @@ The script can:
 - Give the migrated profile a clear name, by default `Migrated from sandboxed Firefox` or `Migrated from sandboxed Thunderbird`.
 - Preserve existing profiles.
 - Update `profiles.ini`, including `[Install...]` sections, so the migrated profile is actually used.
-- Rewrite absolute snap paths inside migrated profile `prefs.js`, `.js`, and `.json` files so mail/download directories keep working.
+- Rewrite absolute snap paths inside migrated profile text config files so mail/download directories keep working.
 - Create a full backup before making changes, and generate a `backup-manifest.txt` and `rollback.sh` in the backup directory.
 - Detect and move broken `/usr/local/bin/firefox` and `/usr/local/bin/thunderbird` wrappers that still point to Flatpak or Snap.
 - Optionally uninstall Flatpak/Snap Firefox and/or Thunderbird.
@@ -61,7 +61,7 @@ Mozilla provides an official APT repository for Debian-based and Ubuntu-based di
   - Flatpak Thunderbird: `~/.var/app/org.mozilla.Thunderbird/.thunderbird`
   - Snap Thunderbird: `~/snap/thunderbird/common/.thunderbird`
 - It copies the selected profile into `~/.thunderbird` as a new profile named `Migrated from sandboxed Thunderbird`.
-- It rewrites absolute paths inside the migrated profile's `.js` and `.json` files, mapping `$HOME/snap/thunderbird/common/.thunderbird/...` (including the old profile directory name) to the new `$HOME/.thunderbird/...` location. Thunderbird stores absolute paths in `prefs.js` for mail/Local Folders directories and download locations, so this keeps those working after migration. Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched.
+- It rewrites absolute paths inside the migrated profile's text config files, mapping `$HOME/snap/thunderbird/common/.thunderbird/...` (including the old profile directory name) to the new `$HOME/.thunderbird/...` location. Thunderbird stores absolute paths in `prefs.js` for mail/Local Folders directories and download locations, so this keeps those working after migration. Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched.
 - It detects and moves broken `/usr/local/bin/thunderbird` wrappers that still point to Flatpak or Snap.
 - It optionally uninstalls Flatpak Thunderbird and/or Snap Thunderbird.
 
@@ -76,12 +76,12 @@ Thunderbird verification paths:
 
 ## Standalone path-rewrite helpers
 
-The main scripts rewrite absolute sandbox paths inside migrated profile `.js`/`.json` files automatically. If you migrated a profile some other way, two standalone helpers do the same rewriting with plain `sed`:
+The main scripts rewrite absolute sandbox paths inside migrated profile config files automatically. If you migrated a profile some other way, two standalone helpers do the same rewriting with plain `sed`:
 
-- `rewrite-thunderbird-js-json.sh` maps paths to `~/.thunderbird`.
-- `rewrite-firefox-js-json.sh` maps paths to `~/.mozilla/firefox`.
+- `rewrite-thunderbird-paths.sh` maps paths to `~/.thunderbird`.
+- `rewrite-firefox-paths.sh` maps paths to `~/.mozilla/firefox`.
 
-Each helper rewrites absolute snap and flatpak paths inside the `prefs.js`, `*.js`, and `*.json` files of a migrated profile, in place:
+Each helper rewrites absolute snap and flatpak paths inside every text config file of a migrated profile (`prefs.js`, `extensions.json`, `mimeTypes.rdf`, and so on), in place:
 
 ```text
 $HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
@@ -90,13 +90,13 @@ $HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
 $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
 ```
 
-Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are never touched, and the `cache2`/`startupCache` directories are skipped.
+Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped.
 
 Usage:
 
 ```bash
-./rewrite-thunderbird-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
-./rewrite-firefox-js-json.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+./rewrite-thunderbird-paths.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+./rewrite-firefox-paths.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
 ```
 
 `PROFILE_DIR` is the migrated profile directory to scan and rewrite. `OLD_PROFILE_DIR_NAME` is the source profile directory name (for example `abcdef.default`); when given, full paths that include that directory name are remapped to the new profile directory name (the basename of `PROFILE_DIR`). When omitted, only root-level path swaps run.
@@ -104,11 +104,13 @@ Usage:
 Examples:
 
 ```bash
-./rewrite-thunderbird-js-json.sh ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
-./rewrite-firefox-js-json.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
+./rewrite-thunderbird-paths.sh ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
+./rewrite-firefox-paths.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
 ```
 
 Use `--dry-run` to preview the planned `sed` replacements without writing any file.
+
+If you migrated a profile by hand (for example copying `~/snap/...` into `~/.thunderbird` or `~/.mozilla/firefox` yourself), run the matching helper on the moved profile before deleting `~/snap` or `~/.var/app` so that removing the old data is safe.
 
 ## Safety model
 
@@ -470,13 +472,13 @@ or disable language packs:
 Run syntax check:
 
 ```bash
-bash -n firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-js-json.sh rewrite-firefox-js-json.sh
+bash -n firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-paths.sh rewrite-firefox-paths.sh
 ```
 
 Run ShellCheck if available:
 
 ```bash
-shellcheck firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-js-json.sh rewrite-firefox-js-json.sh
+shellcheck firefox-migrate-to-mozilla-deb.sh thunderbird-migrate-to-mozilla-deb.sh rewrite-thunderbird-paths.sh rewrite-firefox-paths.sh
 ```
 
 ## Security notes
