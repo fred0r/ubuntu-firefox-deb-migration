@@ -366,7 +366,7 @@ Expected deb Firefox paths look like:
 
 ```text
 /usr/bin/firefox
-/usr/lib/firefox/firefox-bin
+/usr/lib/firefox/firefox
 ```
 
 Bad paths, if you intended to use deb Firefox:

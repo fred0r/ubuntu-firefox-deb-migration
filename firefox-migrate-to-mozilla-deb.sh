@@ -1047,7 +1047,7 @@ Check process:
   ps -ef | grep -i '[f]irefox'
 
 Expected deb Firefox process path:
-  /usr/lib/firefox/firefox-bin
+  /usr/lib/firefox/firefox
 
 Bad process paths:
   /app/lib/firefox
