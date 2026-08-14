@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 
 DRY_RUN=0
+OLD_MAC_ROOT=""
 
 usage() {
   cat <<EOF_USAGE
@@ -18,6 +19,7 @@ exist; the sandbox may or may not still be present.
 Old roots rewritten:
   $HOME/snap/firefox/common/.mozilla/firefox
   $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox
+  <macOS>/Users/<user>/Library/Application Support/Firefox   (detected automatically)
 
 to:
   $HOME/.mozilla/firefox
@@ -40,6 +42,36 @@ EOF_USAGE
 
 escape_sed() {
   printf '%s' "$1" | sed 's/[&|/]/\\&/g'
+}
+
+detect_macos_root() {
+  local profile_dir="$1"
+  python3 - "$profile_dir" <<'PY_MAC'
+import os
+import re
+import sys
+
+profile_dir = sys.argv[1]
+pattern = re.compile(r"/Users/[^/]+/Library/Application Support/Firefox")
+
+seen = set()
+for root, dirs, files in os.walk(profile_dir):
+    dirs[:] = [d for d in dirs if d not in ("cache2", "startupCache")]
+    for name in files:
+        path = os.path.join(root, name)
+        try:
+            if os.path.getsize(path) > 50 * 1024 * 1024:
+                continue
+            with open(path, "rb") as fh:
+                data = fh.read(8 * 1024 * 1024)
+        except OSError:
+            continue
+        for m in pattern.finditer(data.decode("utf-8", "replace")):
+            seen.add(m.group(0))
+
+for root in sorted(seen):
+    print(root)
+PY_MAC
 }
 
 find_default_profile_dir() {
@@ -111,6 +143,9 @@ build_sed_script() {
   local script
   script="s|$(escape_sed "$snap_root")|$(escape_sed "$deb_root")|g;"
   script+="s|$(escape_sed "$flatpak_root")|$(escape_sed "$deb_root")|g"
+  if [[ -n "$OLD_MAC_ROOT" ]]; then
+    script+=";s|$(escape_sed "$OLD_MAC_ROOT")|$(escape_sed "$deb_root")|g"
+  fi
   printf '%s' "$script"
 }
 
@@ -119,7 +154,14 @@ count_text_entries() {
   local snap_root="$HOME/snap/firefox/common/.mozilla/firefox"
   local flatpak_root="$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
 
-  grep -oF -e "$snap_root" -e "$flatpak_root" "$file" 2>/dev/null | wc -l
+  local count
+  count="$(grep -oF -e "$snap_root" -e "$flatpak_root" "$file" 2>/dev/null | wc -l || true)"
+  if [[ -n "$OLD_MAC_ROOT" ]]; then
+    local mac
+    mac="$(grep -oF "$OLD_MAC_ROOT" "$file" 2>/dev/null | wc -l || true)"
+    count=$((count + mac))
+  fi
+  printf '%s' "$count"
 }
 
 is_sqlite() {
@@ -133,12 +175,12 @@ fix_sqlite() {
   local file="$1"
   local dry="$2"
 
-  python3 - "$file" "$HOME/snap/firefox/common/.mozilla/firefox" "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" "$HOME/.mozilla/firefox" "$dry" <<'PY_SQLITE'
+  python3 - "$file" "$HOME/snap/firefox/common/.mozilla/firefox" "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" "$HOME/.mozilla/firefox" "$OLD_MAC_ROOT" "$dry" <<'PY_SQLITE'
 import sqlite3
 import sys
 
-db, snap_root, flatpak_root, deb_root, dry = sys.argv[1:6]
-old_roots = [snap_root, flatpak_root]
+db, snap_root, flatpak_root, deb_root, mac_root, dry = sys.argv[1:7]
+old_roots = [r for r in (snap_root, flatpak_root, mac_root) if r]
 
 con = sqlite3.connect(db)
 con.text_factory = str
@@ -205,7 +247,10 @@ rewrite_profile_paths() {
 
   [[ -d "$profile_dir" ]] || fail "Profile directory does not exist: $profile_dir"
 
-  local old_patterns=(-e "$snap_root" -e "$flatpak_root")
+  local -a old_patterns=(-e "$snap_root" -e "$flatpak_root")
+  if [[ -n "$OLD_MAC_ROOT" ]]; then
+    old_patterns+=(-e "$OLD_MAC_ROOT")
+  fi
 
   local -a files=()
   local file
@@ -322,11 +367,23 @@ main() {
   [[ -d "$profile_dir" ]] || fail "Default profile directory does not exist: $profile_dir"
 
   echo "Default profile: $profile_dir"
+
+  local mac_root
+  mac_root="$(detect_macos_root "$profile_dir" | head -1)" || true
+  if [[ -n "$mac_root" ]]; then
+    OLD_MAC_ROOT="$mac_root"
+    echo "Detected macOS root: $mac_root -> $deb_root"
+  fi
+
   rewrite_profile_paths "$profile_dir"
 
   reset_window_state "$profile_dir"
 
-  if grep -Fq -e "$HOME/snap/firefox/common/.mozilla/firefox" -e "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" "$profiles_ini" 2>/dev/null; then
+  local -a ini_patterns=(-e "$HOME/snap/firefox/common/.mozilla/firefox" -e "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox")
+  if [[ -n "$OLD_MAC_ROOT" ]]; then
+    ini_patterns+=(-e "$OLD_MAC_ROOT")
+  fi
+  if grep -Fq "${ini_patterns[@]}" "$profiles_ini" 2>/dev/null; then
     rewrite_file "$profiles_ini"
   else
     echo "No old paths found in profiles.ini"

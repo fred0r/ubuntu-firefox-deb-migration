@@ -81,14 +81,18 @@ The main scripts rewrite absolute sandbox paths inside migrated profile config f
 - `rewrite-thunderbird-paths.sh` maps paths to `~/.thunderbird`.
 - `rewrite-firefox-paths.sh` maps paths to `~/.mozilla/firefox`.
 
-Each helper reads the deb profile root's `profiles.ini`, finds the current default profile, and rewrites former snap and flatpak absolute paths inside every text config file of that profile (`prefs.js`, `extensions.json`, `mimeTypes.rdf`, and so on), in place:
+Each helper reads the deb profile root's `profiles.ini`, finds the current default profile, and rewrites former snap, flatpak and macOS absolute paths inside every text config file of that profile (`prefs.js`, `extensions.json`, `mimeTypes.rdf`, and so on), in place:
 
 ```text
 $HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
 $HOME/.var/app/org.mozilla.Thunderbird/.thunderbird -> $HOME/.thunderbird
+/Users/<user>/Library/Thunderbird                 -> $HOME/.thunderbird
 $HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
 $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
+/Users/<user>/Library/Application Support/Firefox -> $HOME/.mozilla/firefox
 ```
+
+The macOS roots (`/Users/<user>/Library/...`) are detected automatically: profiles migrated from macOS carry absolute paths that do not exist on Linux (for example `mail.root.*` in Thunderbird or `folderCache.json` keys), which can break the app. The helper scans the profile for such paths and rewrites them to the deb root like any other old root.
 
 Binary files such as `.jsonlz4`, `.mozlz4`, and `key4.db` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped. SQLite databases (for example `content-prefs.sqlite`) *are* fixed: their TEXT cells are updated via `sqlite3` so the database stays valid, and the number of fixed entries is reported. `profiles.ini` itself is rewritten too if it contains old absolute paths (for example an `IsRelative=0` `Path=`).
 

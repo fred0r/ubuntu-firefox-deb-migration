@@ -745,6 +745,7 @@ rewrite_profile_paths() {
   rewrite_output="$(
     python3 - "$profile_dir" "$HOME" "$new_root" "$old_profile_dir_name" "$new_profile_dir_name" <<'PY_PATHS'
 import os
+import re
 import sys
 
 profile_dir, old_home, new_root, old_dir_name, new_dir_name = sys.argv[1:6]
@@ -755,6 +756,23 @@ old_roots = [
 ]
 full_old = [os.path.join(root, old_dir_name) for root in old_roots]
 full_new = os.path.join(new_root, new_dir_name)
+
+mac_pattern = re.compile(r"/Users/[^/]+/Library/Thunderbird")
+mac_seen = set()
+for dirpath, dirnames, filenames in os.walk(profile_dir):
+    dirnames[:] = [d for d in dirnames if d not in ("cache2", "startupCache")]
+    for name in filenames:
+        path = os.path.join(dirpath, name)
+        try:
+            if os.path.getsize(path) > 50 * 1024 * 1024:
+                continue
+            with open(path, "rb") as f:
+                data = f.read(8 * 1024 * 1024)
+        except OSError:
+            continue
+        for m in mac_pattern.finditer(data.decode("utf-8", "replace")):
+            mac_seen.add(m.group(0))
+old_roots.extend(sorted(mac_seen))
 
 count = 0
 sqlite_count = 0
