@@ -29,6 +29,8 @@ All text config files are touched (prefs.js, extensions.json, mimeTypes.rdf, ...
 SQLite databases (for example content-prefs.sqlite) have their TEXT cells fixed too.
 Other binary files such as .jsonlz4, .mozlz4 and key4.db are detected by content and skipped.
 profiles.ini itself is rewritten too if it contains old absolute paths.
+Window-state files (session.json, xulstore.json) are reset so stale or corrupt
+state cannot break the launch after migration; Thunderbird regenerates them.
 
 Examples:
   $SCRIPT_NAME
@@ -270,6 +272,20 @@ fail() {
   exit 1
 }
 
+reset_window_state() {
+  local profile_dir="$1"
+  local f
+  for f in session.json xulstore.json; do
+    [[ -f "$profile_dir/$f" && ! -L "$profile_dir/$f" ]] || continue
+    if [[ "$DRY_RUN" == "1" ]]; then
+      echo "DRY-RUN: Reset $profile_dir/$f -> $f.bak"
+    else
+      mv -f "$profile_dir/$f" "$profile_dir/$f.bak"
+      echo "Reset: $f (window state regenerates on next launch)"
+    fi
+  done
+}
+
 main() {
   local deb_root="$HOME/.thunderbird"
   local profiles_ini="$deb_root/profiles.ini"
@@ -303,6 +319,8 @@ main() {
 
   echo "Default profile: $profile_dir"
   rewrite_profile_paths "$profile_dir"
+
+  reset_window_state "$profile_dir"
 
   if grep -Fq -e "$HOME/snap/thunderbird/common/.thunderbird" -e "$HOME/.var/app/org.mozilla.Thunderbird/.thunderbird" "$profiles_ini" 2>/dev/null; then
     rewrite_file "$profiles_ini"
