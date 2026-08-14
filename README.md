@@ -81,7 +81,7 @@ The main scripts rewrite absolute sandbox paths inside migrated profile config f
 - `rewrite-thunderbird-paths.sh` maps paths to `~/.thunderbird`.
 - `rewrite-firefox-paths.sh` maps paths to `~/.mozilla/firefox`.
 
-Each helper rewrites absolute snap and flatpak paths inside every text config file of a migrated profile (`prefs.js`, `extensions.json`, `mimeTypes.rdf`, and so on), in place:
+Each helper reads the deb profile root's `profiles.ini`, finds the current default profile, and rewrites former snap and flatpak absolute paths inside every text config file of that profile (`prefs.js`, `extensions.json`, `mimeTypes.rdf`, and so on), in place:
 
 ```text
 $HOME/snap/thunderbird/common/.thunderbird        -> $HOME/.thunderbird
@@ -90,25 +90,16 @@ $HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
 $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
 ```
 
-Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped.
+Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped. `profiles.ini` itself is rewritten too if it contains old absolute paths (for example an `IsRelative=0` `Path=`).
 
 Usage:
 
 ```bash
-./rewrite-thunderbird-paths.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
-./rewrite-firefox-paths.sh PROFILE_DIR [OLD_PROFILE_DIR_NAME]
+./rewrite-thunderbird-paths.sh [--dry-run]
+./rewrite-firefox-paths.sh [--dry-run]
 ```
 
-`PROFILE_DIR` is the migrated profile directory to scan and rewrite. `OLD_PROFILE_DIR_NAME` is the source profile directory name (for example `abcdef.default`); when given, full paths that include that directory name are remapped to the new profile directory name (the basename of `PROFILE_DIR`). When omitted, only root-level path swaps run.
-
-Examples:
-
-```bash
-./rewrite-thunderbird-paths.sh ~/.thunderbird/migrated-from-sandboxed-thunderbird-20260814-010000.default-release abcdef.default
-./rewrite-firefox-paths.sh ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
-```
-
-Use `--dry-run` to preview the planned `sed` replacements without writing any file.
+The deb profile root (`~/.thunderbird` or `~/.mozilla/firefox`) must already exist. The helper targets only the default profile from `profiles.ini`; other profiles are left untouched. `--dry-run` previews the planned `sed` replacements without writing any file.
 
 If you migrated a profile by hand (for example copying `~/snap/...` into `~/.thunderbird` or `~/.mozilla/firefox` yourself), run the matching helper on the moved profile before deleting `~/snap` or `~/.var/app` so that removing the old data is safe.
 

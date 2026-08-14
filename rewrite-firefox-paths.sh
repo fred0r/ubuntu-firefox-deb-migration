@@ -8,10 +8,12 @@ DRY_RUN=0
 usage() {
   cat <<EOF_USAGE
 Usage:
-  $SCRIPT_NAME PROFILE_DIR [OLD_PROFILE_DIR_NAME] [--dry-run]
+  $SCRIPT_NAME [--dry-run]
 
-Rewrites absolute snap/flatpak Firefox paths inside every text config file
-of a migrated Firefox profile so they point at the deb profile location.
+Finds the current default Firefox profile from ~/.mozilla/firefox/profiles.ini
+and rewrites former snap/flatpak absolute paths inside its text config files
+so they point at the deb profile location. The deb profile root must already
+exist; the sandbox may or may not still be present.
 
 Old roots rewritten:
   $HOME/snap/firefox/common/.mozilla/firefox
@@ -20,20 +22,16 @@ Old roots rewritten:
 to:
   $HOME/.mozilla/firefox
 
-Arguments:
-  PROFILE_DIR             The migrated profile directory to scan and rewrite in place.
-  OLD_PROFILE_DIR_NAME    The source profile directory name, e.g. abcdef.default.
-                          When given, full paths that include this directory name are
-                          remapped to the new profile directory name (basename of
-                          PROFILE_DIR). When omitted, only root-level path swaps run.
+Options:
   --dry-run               Print the planned replacements without modifying files.
 
 All text config files are touched (prefs.js, extensions.json, mimeTypes.rdf, ...).
 Binary files such as .sqlite, .db, .jsonlz4 and .mozlz4 are detected by content and skipped.
+profiles.ini itself is rewritten too if it contains old absolute paths.
 
 Examples:
-  $SCRIPT_NAME ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release abcdef.default
-  $SCRIPT_NAME ~/.mozilla/firefox/migrated-from-sandboxed-firefox-20260814-010000.default-release --dry-run
+  $SCRIPT_NAME
+  $SCRIPT_NAME --dry-run
 EOF_USAGE
 }
 
@@ -41,25 +39,93 @@ escape_sed() {
   printf '%s' "$1" | sed 's/[&|/]/\\&/g'
 }
 
-rewrite_profile_paths() {
-  local profile_dir="$1"
-  local old_profile_dir_name="${2:-}"
+find_default_profile_dir() {
+  local deb_root="$1"
+  local profiles_ini="$2"
 
-  [[ -d "$profile_dir" ]] || fail "Profile directory does not exist: $profile_dir"
+  python3 - "$deb_root" "$profiles_ini" <<'PY_PROFILE'
+import os
+import re
+import sys
 
-  local new_profile_dir_name
-  new_profile_dir_name="$(basename "$profile_dir")"
+deb_root, profiles_ini = sys.argv[1], sys.argv[2]
 
+config = {}
+current = None
+install_default = None
+
+with open(profiles_ini, encoding="utf-8") as f:
+    for raw in f:
+        line = raw.strip()
+        if not line or line.startswith(";") or line.startswith("#"):
+            continue
+        match = re.match(r"^\[(.*)\]$", line)
+        if match:
+            current = match.group(1).strip()
+            config[current] = {}
+            continue
+        if current is None or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        config[current][key.strip()] = value.strip()
+
+for section in config:
+    if section.startswith("Install") and "Default" in config[section]:
+        install_default = config[section]["Default"]
+
+target_path = None
+is_relative = "1"
+for section in config:
+    if not section.startswith("Profile"):
+        continue
+    cfg = config[section]
+    if cfg.get("Default") == "1":
+        target_path = cfg.get("Path")
+        is_relative = cfg.get("IsRelative", "1")
+        break
+
+if target_path is None:
+    target_path = install_default
+
+if not target_path:
+    sys.exit(2)
+
+target_path = target_path.strip('"').strip("'")
+if os.path.isabs(target_path):
+    print(os.path.normpath(target_path))
+elif is_relative == "0":
+    sys.exit(2)
+else:
+    print(os.path.normpath(os.path.join(deb_root, target_path)))
+PY_PROFILE
+}
+
+rewrite_file() {
+  local file="$1"
   local snap_root="$HOME/snap/firefox/common/.mozilla/firefox"
   local flatpak_root="$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
   local deb_root="$HOME/.mozilla/firefox"
 
-  local old_roots=("$snap_root" "$flatpak_root")
-  local old_patterns=()
-  local i
-  for i in "${old_roots[@]}"; do
-    old_patterns+=(-e "$i")
-  done
+  local sed_script
+  sed_script="s|$(escape_sed "$snap_root")|$(escape_sed "$deb_root")|g;"
+  sed_script+="s|$(escape_sed "$flatpak_root")|$(escape_sed "$deb_root")|g"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "DRY-RUN: sed -i '$sed_script' $file"
+  else
+    sed -i "$sed_script" "$file"
+    echo "Rewrote: $file"
+  fi
+}
+
+rewrite_profile_paths() {
+  local profile_dir="$1"
+  local snap_root="$HOME/snap/firefox/common/.mozilla/firefox"
+  local flatpak_root="$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
+
+  [[ -d "$profile_dir" ]] || fail "Profile directory does not exist: $profile_dir"
+
+  local old_patterns=(-e "$snap_root" -e "$flatpak_root")
 
   local -a files=()
   local file
@@ -79,25 +145,7 @@ rewrite_profile_paths() {
 
   local count=0
   for file in "${files[@]}"; do
-    local sed_script=""
-
-    if [[ -n "$old_profile_dir_name" ]]; then
-      local full_old="$snap_root/$old_profile_dir_name"
-      local full_old_fp="$flatpak_root/$old_profile_dir_name"
-      local full_new="$deb_root/$new_profile_dir_name"
-      sed_script+="s|$(escape_sed "$full_old")|$(escape_sed "$full_new")|g;"
-      sed_script+="s|$(escape_sed "$full_old_fp")|$(escape_sed "$full_new")|g;"
-    fi
-
-    sed_script+="s|$(escape_sed "$snap_root")|$(escape_sed "$deb_root")|g;"
-    sed_script+="s|$(escape_sed "$flatpak_root")|$(escape_sed "$deb_root")|g"
-
-    if [[ "$DRY_RUN" == "1" ]]; then
-      echo "DRY-RUN: sed -i '$sed_script' $file"
-    else
-      sed -i "$sed_script" "$file"
-      echo "Rewrote: $file"
-    fi
+    rewrite_file "$file"
     count=$((count + 1))
   done
 
@@ -111,8 +159,8 @@ fail() {
 }
 
 main() {
-  local profile_dir=""
-  local old_profile_dir_name=""
+  local deb_root="$HOME/.mozilla/firefox"
+  local profiles_ini="$deb_root/profiles.ini"
 
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -128,21 +176,27 @@ main() {
         fail "Unknown option: $1"
         ;;
       *)
-        if [[ -z "$profile_dir" ]]; then
-          profile_dir="$1"
-        elif [[ -z "$old_profile_dir_name" ]]; then
-          old_profile_dir_name="$1"
-        else
-          fail "Unexpected extra argument: $1"
-        fi
-        shift
+        fail "Unexpected argument: $1"
         ;;
     esac
   done
 
-  [[ -n "$profile_dir" ]] || fail "Missing required argument: PROFILE_DIR"
+  [[ -d "$deb_root" ]] || fail "Firefox profile root does not exist: $deb_root"
+  [[ -f "$profiles_ini" ]] || fail "profiles.ini not found: $profiles_ini"
 
-  rewrite_profile_paths "$profile_dir" "$old_profile_dir_name"
+  local profile_dir
+  profile_dir="$(find_default_profile_dir "$deb_root" "$profiles_ini")" || fail "Could not determine the default profile from $profiles_ini"
+  [[ -n "$profile_dir" ]] || fail "Could not determine the default profile from $profiles_ini"
+  [[ -d "$profile_dir" ]] || fail "Default profile directory does not exist: $profile_dir"
+
+  echo "Default profile: $profile_dir"
+  rewrite_profile_paths "$profile_dir"
+
+  if grep -Fq -e "$HOME/snap/firefox/common/.mozilla/firefox" -e "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" "$profiles_ini" 2>/dev/null; then
+    rewrite_file "$profiles_ini"
+  else
+    echo "No old paths found in profiles.ini"
+  fi
 }
 
 main "$@"
