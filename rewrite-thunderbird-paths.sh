@@ -263,7 +263,11 @@ rewrite_profile_paths() {
     fi
   done
 
-  echo "Total files processed: $text_count text rewritten ($text_entries entries), $sqlite_count sqlite fixed ($sqlite_entries entries), $binary_count binary skipped"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "DRY-RUN totals: $text_count text files ($text_entries entries), $sqlite_count sqlite files ($sqlite_entries entries), $binary_count binary skipped; nothing modified"
+  else
+    echo "Total files processed: $text_count text rewritten ($text_entries entries), $sqlite_count sqlite fixed ($sqlite_entries entries), $binary_count binary skipped"
+  fi
 }
 
 fail() {
