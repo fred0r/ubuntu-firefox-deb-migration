@@ -61,7 +61,7 @@ Mozilla provides an official APT repository for Debian-based and Ubuntu-based di
   - Flatpak Thunderbird: `~/.var/app/org.mozilla.Thunderbird/.thunderbird`
   - Snap Thunderbird: `~/snap/thunderbird/common/.thunderbird`
 - It copies the selected profile into `~/.thunderbird` as a new profile named `Migrated from sandboxed Thunderbird`.
-- It rewrites absolute paths inside the migrated profile's text config files, mapping `$HOME/snap/thunderbird/common/.thunderbird/...` (including the old profile directory name) to the new `$HOME/.thunderbird/...` location. Thunderbird stores absolute paths in `prefs.js` for mail/Local Folders directories and download locations, so this keeps those working after migration. Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched.
+- It rewrites absolute paths inside the migrated profile's text config files, mapping `$HOME/snap/thunderbird/common/.thunderbird/...` (including the old profile directory name) to the new `$HOME/.thunderbird/...` location. Thunderbird stores absolute paths in `prefs.js` for mail/Local Folders directories and download locations, so this keeps those working after migration. SQLite databases such as `content-prefs.sqlite` have their TEXT cells fixed too; binary files such as `.jsonlz4`, `.mozlz4`, and `key4.db` are detected by content and never touched.
 - It detects and moves broken `/usr/local/bin/thunderbird` wrappers that still point to Flatpak or Snap.
 - It optionally uninstalls Flatpak Thunderbird and/or Snap Thunderbird.
 
@@ -90,7 +90,9 @@ $HOME/snap/firefox/common/.mozilla/firefox        -> $HOME/.mozilla/firefox
 $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox -> $HOME/.mozilla/firefox
 ```
 
-Binary files such as `.sqlite`, `.db`, `.jsonlz4`, and `.mozlz4` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped. `profiles.ini` itself is rewritten too if it contains old absolute paths (for example an `IsRelative=0` `Path=`).
+Binary files such as `.jsonlz4`, `.mozlz4`, and `key4.db` are detected by content and never touched, and the `cache2`/`startupCache` directories are skipped. SQLite databases (for example `content-prefs.sqlite`) *are* fixed: their TEXT cells are updated via `sqlite3` so the database stays valid, and the number of fixed entries is reported. `profiles.ini` itself is rewritten too if it contains old absolute paths (for example an `IsRelative=0` `Path=`).
+
+Each rewritten file reports how many path entries were replaced (`Rewrote: .../prefs.js - 12 entries`), skipped binaries are listed, and a summary line breaks down text rewritten vs. sqlite fixed vs. binary skipped.
 
 Usage:
 
@@ -99,7 +101,7 @@ Usage:
 ./rewrite-firefox-paths.sh [--dry-run]
 ```
 
-The deb profile root (`~/.thunderbird` or `~/.mozilla/firefox`) must already exist. The helper targets only the default profile from `profiles.ini`; other profiles are left untouched. `--dry-run` previews the planned `sed` replacements without writing any file.
+The deb profile root (`~/.thunderbird` or `~/.mozilla/firefox`) must already exist. The helper targets only the default profile from `profiles.ini`; other profiles are left untouched. `--dry-run` previews the planned replacements without writing any file.
 
 If you migrated a profile by hand (for example copying `~/snap/...` into `~/.thunderbird` or `~/.mozilla/firefox` yourself), run the matching helper on the moved profile before deleting `~/snap` or `~/.var/app` so that removing the old data is safe.
 

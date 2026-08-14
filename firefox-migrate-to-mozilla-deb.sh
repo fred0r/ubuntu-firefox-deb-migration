@@ -761,6 +761,61 @@ full_old = [os.path.join(root, old_dir_name) for root in old_roots]
 full_new = os.path.join(new_root, new_dir_name)
 
 count = 0
+sqlite_count = 0
+sqlite_entries = 0
+
+
+def fix_sqlite(path):
+    """Fix old roots inside a SQLite DB. Returns entry count, or None if not SQLite."""
+    with open(path, "rb") as f:
+        if f.read(16) != b"SQLite format 3\x00":
+            return None
+    import sqlite3
+
+    con = sqlite3.connect(path)
+    con.text_factory = str
+    cur = con.cursor()
+    n = 0
+    for (table,) in cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall():
+        try:
+            cols = cur.execute('PRAGMA table_info("%s")' % table).fetchall()
+        except sqlite3.Error:
+            continue
+        for _cid, cname, ctype, _notnull, _dflt, _pk in cols:
+            if ctype.upper() not in ("TEXT", "CLOB", ""):
+                continue
+            for old in old_roots:
+                try:
+                    rows = cur.execute(
+                        'SELECT rowid, "%s" FROM "%s" WHERE "%s" LIKE ?'
+                        % (cname, table, cname),
+                        ("%" + old + "%",),
+                    ).fetchall()
+                except sqlite3.Error:
+                    continue
+                for rowid, val in rows:
+                    if not isinstance(val, str):
+                        continue
+                    new = val
+                    for full in full_old:
+                        new = new.replace(full, full_new)
+                    for root in old_roots:
+                        new = new.replace(root, new_root)
+                    if new != val:
+                        n += 1
+                        cur.execute(
+                            'UPDATE "%s" SET "%s"=? WHERE rowid=?' % (table, cname),
+                            (new, rowid),
+                        )
+    con.commit()
+    if cur.execute("PRAGMA integrity_check").fetchall()[0][0] != "ok":
+        con.close()
+        raise SystemExit(f"sqlite integrity check failed after fixing: {path}")
+    con.close()
+    return n
+
 
 for dirpath, dirnames, filenames in os.walk(profile_dir):
     dirnames[:] = [d for d in dirnames if d not in ("cache2", "startupCache")]
@@ -772,6 +827,11 @@ for dirpath, dirnames, filenames in os.walk(profile_dir):
         except OSError:
             continue
         if b"\x00" in data:
+            n = fix_sqlite(path)
+            if n is not None:
+                sqlite_count += 1
+                sqlite_entries += n
+                print(f"Fixed SQLite: {path} - {n} entries")
             continue
         try:
             content = data.decode("utf-8")
@@ -789,6 +849,7 @@ for dirpath, dirnames, filenames in os.walk(profile_dir):
         print(path)
 
 print(f"Total rewritten files: {count}")
+print(f"Total sqlite files fixed: {sqlite_count} ({sqlite_entries} entries)")
 PY_PATHS
   )"
 

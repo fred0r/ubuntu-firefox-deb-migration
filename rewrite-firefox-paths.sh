@@ -26,7 +26,8 @@ Options:
   --dry-run               Print the planned replacements without modifying files.
 
 All text config files are touched (prefs.js, extensions.json, mimeTypes.rdf, ...).
-Binary files such as .sqlite, .db, .jsonlz4 and .mozlz4 are detected by content and skipped.
+SQLite databases (for example content-prefs.sqlite) have their TEXT cells fixed too.
+Other binary files such as .jsonlz4, .mozlz4 and key4.db are detected by content and skipped.
 profiles.ini itself is rewritten too if it contains old absolute paths.
 
 Examples:
@@ -100,21 +101,98 @@ else:
 PY_PROFILE
 }
 
-rewrite_file() {
-  local file="$1"
+build_sed_script() {
   local snap_root="$HOME/snap/firefox/common/.mozilla/firefox"
   local flatpak_root="$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
   local deb_root="$HOME/.mozilla/firefox"
 
-  local sed_script
-  sed_script="s|$(escape_sed "$snap_root")|$(escape_sed "$deb_root")|g;"
-  sed_script+="s|$(escape_sed "$flatpak_root")|$(escape_sed "$deb_root")|g"
+  local script
+  script="s|$(escape_sed "$snap_root")|$(escape_sed "$deb_root")|g;"
+  script+="s|$(escape_sed "$flatpak_root")|$(escape_sed "$deb_root")|g"
+  printf '%s' "$script"
+}
+
+count_text_entries() {
+  local file="$1"
+  local snap_root="$HOME/snap/firefox/common/.mozilla/firefox"
+  local flatpak_root="$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
+
+  grep -oF -e "$snap_root" -e "$flatpak_root" "$file" 2>/dev/null | wc -l
+}
+
+is_sqlite() {
+  local file="$1"
+  local magic
+  magic="$(od -An -N16 -tx1 "$file" 2>/dev/null | tr -d ' \n')"
+  [[ "$magic" == "53514c69746520666f726d6174203300" ]]
+}
+
+fix_sqlite() {
+  local file="$1"
+  local dry="$2"
+
+  python3 - "$file" "$HOME/snap/firefox/common/.mozilla/firefox" "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" "$HOME/.mozilla/firefox" "$dry" <<'PY_SQLITE'
+import sqlite3
+import sys
+
+db, snap_root, flatpak_root, deb_root, dry = sys.argv[1:6]
+old_roots = [snap_root, flatpak_root]
+
+con = sqlite3.connect(db)
+con.text_factory = str
+cur = con.cursor()
+count = 0
+
+for (table,) in cur.execute(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+).fetchall():
+    try:
+        cols = cur.execute('PRAGMA table_info("%s")' % table).fetchall()
+    except sqlite3.Error:
+        continue
+    for _cid, cname, ctype, _notnull, _dflt, _pk in cols:
+        if ctype.upper() not in ("TEXT", "CLOB", ""):
+            continue
+        for old in old_roots:
+            try:
+                rows = cur.execute(
+                    'SELECT rowid, "%s" FROM "%s" WHERE "%s" LIKE ?'
+                    % (cname, table, cname),
+                    ("%" + old + "%",),
+                ).fetchall()
+            except sqlite3.Error:
+                continue
+            for rowid, val in rows:
+                if not isinstance(val, str) or old not in val:
+                    continue
+                count += 1
+                if dry == "0":
+                    cur.execute(
+                        'UPDATE "%s" SET "%s"=? WHERE rowid=?' % (table, cname),
+                        (val.replace(old, deb_root), rowid),
+                    )
+
+if dry == "0":
+    con.commit()
+    if cur.execute("PRAGMA integrity_check").fetchall()[0][0] != "ok":
+        con.close()
+        sys.exit(3)
+con.close()
+
+print(count)
+PY_SQLITE
+}
+
+rewrite_file() {
+  local file="$1"
+  local entries
+  entries="$(count_text_entries "$file")"
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "DRY-RUN: sed -i '$sed_script' $file"
+    echo "DRY-RUN: $file - $entries entries"
   else
-    sed -i "$sed_script" "$file"
-    echo "Rewrote: $file"
+    sed -i "$(build_sed_script)" "$file"
+    echo "Rewrote: $file - $entries entries"
   fi
 }
 
@@ -135,7 +213,7 @@ rewrite_profile_paths() {
     find "$profile_dir" \
       -type d \( -name cache2 -o -name startupCache \) -prune -o \
       -type f -print0 2>/dev/null |
-      xargs -0 grep -FIlZ "${old_patterns[@]}" 2>/dev/null
+      xargs -0 grep -FlZ "${old_patterns[@]}" 2>/dev/null
   )
 
   if [[ "${#files[@]}" -eq 0 ]]; then
@@ -143,13 +221,47 @@ rewrite_profile_paths() {
     return 0
   fi
 
-  local count=0
+  local text_count=0
+  local text_entries=0
+  local sqlite_count=0
+  local sqlite_entries=0
+  local binary_count=0
+
   for file in "${files[@]}"; do
-    rewrite_file "$file"
-    count=$((count + 1))
+    if grep -FIq "${old_patterns[@]}" "$file" 2>/dev/null; then
+      text_count=$((text_count + 1))
+      local t
+      t="$(count_text_entries "$file")"
+      text_entries=$((text_entries + t))
+      if [[ "$DRY_RUN" == "1" ]]; then
+        echo "DRY-RUN: $file - $t entries"
+      else
+        sed -i "$(build_sed_script)" "$file"
+        echo "Rewrote: $file - $t entries"
+      fi
+    else
+      if is_sqlite "$file"; then
+        sqlite_count=$((sqlite_count + 1))
+        local n
+        n="$(fix_sqlite "$file" "$DRY_RUN")"
+        if [[ "$n" =~ ^[0-9]+$ ]]; then
+          sqlite_entries=$((sqlite_entries + n))
+        else
+          echo "WARNING: sqlite fix failed for $file: $n"
+        fi
+        if [[ "$DRY_RUN" == "1" ]]; then
+          echo "DRY-RUN: $file - $n entries (sqlite)"
+        else
+          echo "Fixed SQLite: $file - $n entries"
+        fi
+      else
+        binary_count=$((binary_count + 1))
+        echo "Skipped (binary): $file"
+      fi
+    fi
   done
 
-  echo "Total files processed: $count"
+  echo "Total files processed: $text_count text rewritten ($text_entries entries), $sqlite_count sqlite fixed ($sqlite_entries entries), $binary_count binary skipped"
 }
 
 fail() {
